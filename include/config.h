@@ -7,11 +7,11 @@
 namespace config {
 
 // --- Wi-Fi portal ---
-constexpr char kPortalApName[] = "PlaneRadar-Setup";
-constexpr char kPortalIp[] = "192.168.4.1";
-/** mDNS host (no ".local" suffix); browser: http://plane-radar.local */
-constexpr char kPortalHostname[] = "plane-radar";
-constexpr char kPortalHostUrl[] = "plane-radar.local";
+constexpr char kPortalApName[]   = "OctopusAgile-Setup";
+constexpr char kPortalIp[]       = "192.168.4.1";
+/** mDNS host (no ".local" suffix); browser: http://octopus-agile.local */
+constexpr char kPortalHostname[] = "octopus-agile";
+constexpr char kPortalHostUrl[]  = "octopus-agile.local";
 
 /** Per-attempt STA connect wait (ms); retried kWifiConnectAttempts times. */
 constexpr unsigned long kWifiConnectAttemptMs = 15000;
@@ -44,16 +44,12 @@ constexpr uint32_t kDisplaySpiWriteHz = 40000000;
 constexpr bool kDisplayInvert = true;
 constexpr bool kDisplayRgbOrder = true;
 
-// --- Radar center defaults (overridden via WiFi setup portal) ---
-constexpr double kDefaultRadarLat = 52.3676;
-constexpr double kDefaultRadarLon = 4.9041;
-
-/** Poll adsb.fi (API public limit: 1 req/s). */
-constexpr unsigned long kAdsbFetchIntervalMs = 3000;
-/** Legacy scale unused — fetch uses radar::fetchRadiusKm() to screen edge. */
-constexpr float kAdsbFetchRadiusScale = 1.0f;
-/** false = hide aircraft with alt_baro "ground"; true = show them too. */
-constexpr bool kAdsbShowGroundAircraft = false;
+// --- Octopus Agile ---
+constexpr char kOctopusApiBase[]         = "https://api.octopus.energy/v1";
+constexpr char kOctopusFallbackProduct[] = "AGILE-FLEX-22-11-25";
+constexpr char kNtpServer1[]             = "pool.ntp.org";
+constexpr char kNtpServer2[]             = "time.nist.gov";
+constexpr unsigned long kPriceFetchTimeoutMs = 15000;
 
 // --- UI colors (RGB565) — status screens ---
 constexpr uint16_t kColorBlack = 0x0000;

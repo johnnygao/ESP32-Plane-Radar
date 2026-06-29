@@ -1,5 +1,10 @@
 #pragma once
 
+namespace services::wifi {
+  /** DNO region letter (A–P, never I); default 'C' (London). */
+  char region();
+}
+
 /** True when the next boot should show the setup screen first (after credential reset). */
 bool wifiShowsSetupScreenOnBoot();
 void wifiResetCredentialsAndReboot();

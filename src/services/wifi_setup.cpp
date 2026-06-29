@@ -3,6 +3,7 @@
 #include <WiFi.h>
 #include <WiFiManager.h>
 
+#include <cctype>
 #include <cstdio>
 
 #include <Preferences.h>
@@ -14,8 +15,6 @@
 #endif
 
 #include "config.h"
-#include "services/radar_location.h"
-#include "ui/radar_range.h"
 #include "ui/status_screens.h"
 
 portMUX_TYPE s_boot_mux = portMUX_INITIALIZER_UNLOCKED;
@@ -24,6 +23,8 @@ volatile bool s_boot_is_down = false;
 volatile unsigned long s_boot_down_ms = 0;
 bool s_long_press_handled = false;
 bool s_boot_interrupt_attached = false;
+
+static char s_region = 'C';  // DNO region letter; loaded from NVS in ensureWifiManager()
 
 void IRAM_ATTR onBootButtonIsr() {
   const bool down = digitalRead(config::kBootPin) == LOW;
@@ -54,9 +55,10 @@ void initBootButton() {
 
 namespace {
 
-/** Separate from planeradar prefs (rangeInit) to avoid NVS handle conflicts. */
 constexpr char kWifiPrefsNamespace[] = "wifi";
 constexpr char kPrefsForcePortalKey[] = "portal";
+constexpr char kOctopusPrefsNamespace[] = "octopus";
+constexpr char kPrefsRegionKey[] = "region";
 
 bool s_force_config_portal = false;
 WiFiManager s_wm;
@@ -67,53 +69,55 @@ void startLanWebPortal();
 void stopLanWebPortal();
 bool wifiLinkUp();
 
-constexpr int kCoordParamLen = 20;
-constexpr char kCoordInputAttrs[] =
-    " type=\"number\" step=\"0.000001\"";
+constexpr int kRegionParamLen = 2;
+constexpr char kRegionInputAttrs[] =
+    " maxlength=\"1\" style=\"text-transform:uppercase\"";
 
-WiFiManagerParameter s_param_lat("radar_lat", "Latitude (deg)", "0",
-                                kCoordParamLen, kCoordInputAttrs);
-WiFiManagerParameter s_param_lon("radar_lon", "Longitude (deg)", "0",
-                                kCoordParamLen, kCoordInputAttrs);
+WiFiManagerParameter s_param_region(
+    "octopus_region",
+    "DNO Region: A=East B=EMidlands C=London D=Merseyside E=WMidlands "
+    "F=NE G=NW H=South J=SE K=SWales L=SW M=Yorks N=SScotland P=NScotland",
+    "C", kRegionParamLen, kRegionInputAttrs);
 
-char s_miles_checkbox_attrs[32] = "type=\"checkbox\"";
-WiFiManagerParameter s_param_miles("use_miles", "Display distances in miles", "T", 2,
-                                   s_miles_checkbox_attrs, WFM_LABEL_AFTER);
-
-char s_runways_checkbox_attrs[32] = "type=\"checkbox\"";
-WiFiManagerParameter s_param_runways("show_runways", "Show airport runways", "T", 2,
-                                     s_runways_checkbox_attrs, WFM_LABEL_AFTER);
+void loadRegion() {
+  Preferences prefs;
+  if (!prefs.begin(kOctopusPrefsNamespace, true)) {
+    return;
+  }
+  const char c = prefs.getChar(kPrefsRegionKey, 'C');
+  prefs.end();
+  if (c >= 'A' && c <= 'P' && c != 'I') {
+    s_region = c;
+  }
+}
 
 void refreshPortalParamDefaults() {
-  char lat_buf[kCoordParamLen + 1];
-  char lon_buf[kCoordParamLen + 1];
-  snprintf(lat_buf, sizeof(lat_buf), "%.6f", services::location::lat());
-  snprintf(lon_buf, sizeof(lon_buf), "%.6f", services::location::lon());
-  s_param_lat.setValue(lat_buf, kCoordParamLen);
-  s_param_lon.setValue(lon_buf, kCoordParamLen);
-  snprintf(s_miles_checkbox_attrs, sizeof(s_miles_checkbox_attrs), "type=\"checkbox\"%s",
-           ui::radar::useMiles() ? " checked" : "");
-  s_param_miles.setValue("T", 2);
-  snprintf(s_runways_checkbox_attrs, sizeof(s_runways_checkbox_attrs),
-           "type=\"checkbox\"%s", ui::radar::showRunways() ? " checked" : "");
-  s_param_runways.setValue("T", 2);
+  char region_str[2] = {s_region, '\0'};
+  s_param_region.setValue(region_str, kRegionParamLen);
 }
 
 void onPortalParamsSaved() {
-  if (!services::location::saveFromStrings(s_param_lat.getValue(),
-                                           s_param_lon.getValue())) {
-    Serial.println("Invalid lat/lon in portal — keeping previous location");
+  const char* val = s_param_region.getValue();
+  if (val == nullptr || val[0] == '\0') {
+    return;
   }
-  ui::radar::saveMilesFromPortal(s_param_miles.getValue());
-  ui::radar::saveRunwaysFromPortal(s_param_runways.getValue());
+  const char c = static_cast<char>(toupper(static_cast<unsigned char>(val[0])));
+  if (c < 'A' || c > 'P' || c == 'I') {
+    Serial.printf("Invalid region '%c' — keeping '%c'\n", val[0], s_region);
+    return;
+  }
+  s_region = c;
+  Preferences prefs;
+  if (prefs.begin(kOctopusPrefsNamespace, false)) {
+    prefs.putChar(kPrefsRegionKey, c);
+    prefs.end();
+    Serial.printf("Region saved: %c\n", c);
+  }
 }
 
 void attachPortalParams(WiFiManager& wm) {
   refreshPortalParamDefaults();
-  wm.addParameter(&s_param_lat);
-  wm.addParameter(&s_param_lon);
-  wm.addParameter(&s_param_miles);
-  wm.addParameter(&s_param_runways);
+  wm.addParameter(&s_param_region);
   wm.setSaveParamsCallback(onPortalParamsSaved);
 }
 
@@ -189,9 +193,16 @@ void eraseWifiCredentials() {
 void resetWifiCredentials() {
   markForceConfigPortal();
   eraseWifiCredentials();
-  services::location::clear();
-  ui::radar::unitsReset();
-  Serial.println("WiFi credentials, location, and units cleared");
+  // Clear Octopus NVS (product cache, region)
+  {
+    Preferences prefs;
+    if (prefs.begin(kOctopusPrefsNamespace, false)) {
+      prefs.clear();
+      prefs.end();
+    }
+  }
+  s_region = 'C';
+  Serial.println("WiFi credentials and Octopus settings cleared");
 }
 
 void onConfigPortalApStarted(WiFiManager*) {
@@ -218,6 +229,7 @@ void ensureWifiManager() {
   if (s_wm_configured) {
     return;
   }
+  loadRegion();
   s_wm.setConfigPortalTimeout(config::kWifiPortalTimeoutSec);
   s_wm.setAPStaticIPConfig(IPAddress(192, 168, 4, 1), IPAddress(192, 168, 4, 1),
                            IPAddress(255, 255, 255, 0));
@@ -486,4 +498,8 @@ bool wifiSetupConnect() {
   Serial.println("WiFi connection failed");
   statusScreenConnectFailed();
   return false;
+}
+
+namespace services::wifi {
+  char region() { return s_region; }
 }

@@ -1,63 +1,30 @@
 /**
- * Plane Radar — WiFi setup, then radar UI on the round GC9A01 display.
+ * Octopus Agile price display — WiFi setup, NTP sync, then price UI on the
+ * round GC9A01 display.
  */
 
 #include <Arduino.h>
 #include <WiFi.h>
+#include <time.h>
 
 #include "config.h"
 #include "hardware/display.h"
-#include "services/adsb_client.h"
-#include "services/radar_location.h"
+#include "services/octopus_client.h"
+#include "services/time_sync.h"
 #include "services/wifi_setup.h"
-#include "ui/radar_display.h"
-#include "ui/radar_range.h"
+#include "ui/price_display.h"
 #include "ui/status_screens.h"
 
 namespace {
 
-bool g_radar_visible = false;
+bool g_display_ready = false;
 unsigned long g_wifi_down_since = 0;
 unsigned long g_last_reconnect_ms = 0;
-unsigned long g_last_adsb_fetch_ms = 0;
+int g_last_fetch_minute = -1;
 
-void showRadarIfConnected() {
-  if (WiFi.status() != WL_CONNECTED) {
-    g_radar_visible = false;
-    return;
-  }
-  ui::radarDisplayDraw();
-  g_radar_visible = true;
-}
-
-void onRangeTap() {
-  ui::radar::rangeNext();
-  char range_label[12];
-  ui::radar::formatCurrentRing3Label(range_label, sizeof(range_label));
-  Serial.printf("Range: %s (outer ~%.0f km)\n", range_label,
-                ui::radar::rangeCurrent().outer_km);
-
-  if (g_radar_visible && WiFi.status() == WL_CONNECTED) {
-    ui::radarDisplayDraw();
-  }
-}
-
-void handleBootButton() {
-  bootButtonPollLongPress();
-  if (bootButtonConsumeTap()) {
-    onRangeTap();
-  }
-}
-
-void fetchAndDrawAircraft() {
-  const float fetch_km = ui::radar::fetchRadiusKm();
-  if (!services::adsb::fetchUpdate(services::location::lat(),
-                                   services::location::lon(), fetch_km)) {
-    handleBootButton();
-    return;
-  }
-  ui::radarDisplayRefreshAircraft();
-  handleBootButton();
+void fetchAndRedraw() {
+  services::octopus::fetchTodayPrices(services::wifi::region());
+  priceDisplayDraw();
 }
 
 }  // namespace
@@ -66,30 +33,58 @@ void setup() {
   Serial.begin(115200);
   delay(500);
   Serial.println();
-  Serial.println("Plane Radar");
+  Serial.println("Octopus Agile Display");
 
-  bootButtonInit();
   displayInit();
+  bootButtonInit();
+  priceDisplayInit();  // colors + sprite; does not need WiFi
+
   if (wifiShowsSetupScreenOnBoot()) {
     statusScreenPortal();
   }
-  services::location::init();
-  ui::radar::rangeInit();
-  services::adsb::setPollFn(wifiLoop);
 
-  if (wifiSetupConnect()) {
-    showRadarIfConnected();
+  if (!wifiSetupConnect()) {
+    // Stay in error screen; loop() will retry reconnect
+    return;
   }
+
+  // NTP sync with spinner
+  timeSyncInit();
+  statusScreenConnectingBegin("NTP sync");
+  const uint32_t ntp_deadline = millis() + 10000;
+  while (millis() < ntp_deadline) {
+    if (time(nullptr) > 1000000000UL) {
+      Serial.println("NTP synced");
+      break;
+    }
+    statusScreenConnectingTick();
+    delay(config::kWifiConnectingFrameMs);
+  }
+  if (time(nullptr) <= 1000000000UL) {
+    Serial.println("NTP timeout — continuing without sync");
+  }
+
+  services::octopus::setPollFn(wifiLoop);
+  services::octopus::discoverProductCode();
+  services::octopus::fetchTodayPrices(services::wifi::region());
+  priceDisplayDraw();
+  g_display_ready = true;
 }
 
 void loop() {
-  handleBootButton();
+  bootButtonPollLongPress();
   wifiLoop();
 
+  if (bootButtonConsumeTap()) {
+    Serial.println("Tap — force refresh");
+    fetchAndRedraw();
+    return;
+  }
+
   if (WiFi.status() != WL_CONNECTED) {
-    if (g_radar_visible) {
+    if (g_display_ready) {
       Serial.println("WiFi lost — will reconnect");
-      g_radar_visible = false;
+      g_display_ready = false;
     }
 
     if (g_wifi_down_since == 0) {
@@ -102,16 +97,24 @@ void loop() {
       g_last_reconnect_ms = millis();
       if (wifiReconnect()) {
         g_wifi_down_since = 0;
-        showRadarIfConnected();
+        g_display_ready = true;
       }
     }
   } else {
     g_wifi_down_since = 0;
-    if (!g_radar_visible) {
-      showRadarIfConnected();
-    } else if (millis() - g_last_adsb_fetch_ms >= config::kAdsbFetchIntervalMs) {
-      g_last_adsb_fetch_ms = millis();
-      fetchAndDrawAircraft();
+
+    if (!g_display_ready) {
+      fetchAndRedraw();
+      g_display_ready = true;
+    } else {
+      const int mod = minuteOfDay();
+      if (mod == 0 || mod == 980) {  // midnight or 16:20 UK
+        if (mod != g_last_fetch_minute) {
+          g_last_fetch_minute = mod;
+          fetchAndRedraw();
+        }
+      }
+      priceDisplayUpdate();
     }
   }
 
