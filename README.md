@@ -1,147 +1,74 @@
-# Plane Radar
+# Octopus Agile Price Display
 
-<img width="800" height="450" alt="plane-radar" src="https://github.com/user-attachments/assets/716d0992-dab8-47ba-8f1a-2aec7f607419" />
+Firmware for an **ESP32-C3 Super Mini** and a **1.28″ round GC9A01** display (240×240). Shows today's **Octopus Agile** half-hourly electricity prices on a circular bar chart, colour-coded by relative cost.
 
-**3D printed case (STL + assembly):** [MakerWorld](https://makerworld.com/en/models/2872376-esp32-plane-radar-live-ads-b-on-a-round-display#profileId-3207083) · **Firmware:** [Releases](https://github.com/MatixYo/ESP32-Plane-Radar/releases)
+## What it shows
 
-Firmware for an **ESP32-C3 Super Mini** and a **1.28″ round GC9A01** display (240×240). Shows a circular **ADS-B radar** around your configured location, with **WiFiManager** for first-time setup.
+48 bars arranged around the clock face — one per half-hour slot, starting at midnight (12 o'clock) and running clockwise. The current slot is highlighted with a white border and an inward-pointing triangle pointer. The centre shows:
 
-## What it does
+- **Large** — current price in pence (e.g. `24.5p`), or `--p` if data is unavailable
+- **Small** — slot start time (e.g. `14:30`)
 
-1. **Wi‑Fi setup** (if needed) — captive portal on AP **`PlaneRadar-Setup`**
-2. **Radar** — live aircraft from [adsb.fi](https://opendata.adsb.fi/) on a sonar-style grid
+### Colour coding
 
-After Wi‑Fi is saved, the device reconnects automatically; the radar runs in the main loop with periodic ADS-B updates (~5 s).
+Thresholds are calculated fresh each day from the actual price distribution (20th / 80th percentile):
 
-## Controls (BOOT, GPIO 9, active LOW)
+| Colour | Meaning |
+|--------|---------|
+| Green | Below 20th percentile — cheap |
+| Grey | 20th–80th percentile — typical |
+| Red | Above 80th percentile — expensive |
+| Teal | Negative price |
+| Dark grey stub | Slot not yet published |
+
+## First-time setup
+
+1. Power on — the display shows a yellow setup screen
+2. Join the Wi-Fi network **`OctopusAgile-Setup`** from your phone or laptop
+3. Open **`http://octopus-agile.local`** or **`http://192.168.4.1`**
+4. Enter your home Wi-Fi credentials and your **DNO region** letter (see table below)
+5. Save — the device connects, syncs time, fetches today's prices, and draws the display
+
+### DNO regions
+
+| Letter | Region |
+|--------|--------|
+| A | East England |
+| B | East Midlands |
+| C | London |
+| D | Merseyside & North Wales |
+| E | West Midlands |
+| F | North East |
+| G | North West |
+| H | South England |
+| J | South East |
+| K | South Wales |
+| L | South West |
+| M | Yorkshire |
+| N | South Scotland |
+| P | North Scotland |
+
+### Reconfiguring
+
+Visit **`http://octopus-agile.local`** (or the device IP shown in the serial log) while it's connected to Wi-Fi.
+
+## Controls (BOOT button, GPIO 9)
 
 | Action | Effect |
 |--------|--------|
-| **Short tap** | Cycle range preset (5 → 10 → 15 → 25 km); saved to flash |
-| **Hold 3 s** | Clear Wi‑Fi, location, and units; reboot into setup portal |
+| **Short tap** | Force-refresh prices from the API immediately |
+| **Hold 3 s** | Clear Wi-Fi credentials and DNO region; reboot into setup portal |
 
-During setup you can also hold BOOT at power-on to force a credential reset (same as the long press).
+## Price refresh schedule
 
-## Wi‑Fi setup portal
-
-**First-time setup** (no saved Wi‑Fi):
-
-1. Connect to **`PlaneRadar-Setup`**
-2. Open **`http://plane-radar.local`** (preferred) or **`http://192.168.4.1`** — both are shown on the yellow setup screen; captive portal may open automatically
-3. Set home Wi‑Fi, then save
-
-**Reconfigure anytime** (after the device is on your network):
-
-1. Open **`http://plane-radar.local`** or **`http://<device-ip>`** (e.g. from your router or serial log at boot)
-2. Change Wi‑Fi, location, units, or runway overlay; save
-
-The same portal runs on the setup AP and on the device’s LAN IP while connected to Wi‑Fi. mDNS hostname is `plane-radar` → **plane-radar.local** (`kPortalHostname` in `config.h`). Some clients resolve `.local` slowly; use the IP if needed.
-
-**Custom fields** (stored in NVS):
-
-| Field | Purpose |
-|-------|---------|
-| **Latitude / Longitude** | Radar center and ADS-B query position (defaults in `config.h` until set) |
-| **Display distances in miles** | Ring scale label in **mi** instead of **km** (e.g. `6mi` vs `10km`) |
-| **Show airport runways** | Major-airport runway overlay on the radar (off to hide) |
-
-After a reset, the device reboots and shows the setup screen immediately (no “Connecting” loop on stale credentials).
-
-## Radar display
-
-### Grid
-
-- Dark blue background, subdued green rings and crosshairs
-- White **N / S / E / W** at the bezel; range label on the **east** spoke (ring 3 = ¾ of outer radius)
-- White center dot
-
-Layout and colors: `include/ui/radar_theme.h`.
-
-### Range presets
-
-| Ring 3 label | Outer radius (aircraft scale) |
-|------------|-------------------------------|
-| 5 km / 3 mi | ~6.7 km |
-| 10 km / 6 mi | ~13.3 km (default) |
-| 15 km / 9 mi | ~20 km |
-| 25 km / 16 mi | ~33.3 km |
-
-Preset and miles/km choice persist across reboot (`planeradar` NVS namespace).
-
-### Runways
-
-- Major airports from OurAirports (`large_airport`); all open runway strips in range (helipads excluded)
-- Teal runway lines with one ICAO label per airport (e.g. `KJFK`); toggle in the Wi‑Fi setup portal
-- Update the embedded list: `python3 scripts/build_large_airports.py`
-
-### Aircraft
-
-- **Inside the outer ring** — red heading triangle, magenta speed vector (clipped at the ring), callsign / type / altitude tags
-- **Outside the ring** (still within ADS-B fetch) — small **red dot on the screen rim** at the correct bearing (direction cue; not distance-accurate past the ring)
-- **Tags** — placed toward the **center**: west (left) → tag on the **right** of the symbol; east (right) → tag on the **left**
-
-As range decreases (or aircraft approach), targets move inward; beyond-ring dots become full symbols when they cross the outer ring.
-
-### ADS-B
-
-- Source: `https://opendata.adsb.fi/api/v3/`
-- Fetch radius: `ui::radar::fetchRadiusKm()` — scales with the active preset to roughly the screen edge (so rim dots have data)
-- Poll interval: `kAdsbFetchIntervalMs` (5 s) in `config.h`
-- Ground aircraft hidden by default (`kAdsbShowGroundAircraft`)
-
-## Configuration
-
-Edit **`include/config.h`** for hardware and behavior:
-
-| Area | Keys / notes |
-|------|----------------|
-| Portal | `kPortalApName`, `kPortalIp`, `kPortalHostname` / `kPortalHostUrl` (mDNS; needs `-DWM_MDNS` in `platformio.ini`) |
-| Wi‑Fi timing | connect attempts, reconnect grace, portal timeout (`0` = no timeout) |
-| BOOT | `kBootPin`, `kBootResetHoldMs`, `kBootTapMinMs` |
-| Display SPI | pins, `kDisplayInvert`, `kDisplayRgbOrder`, `kDisplaySpiWriteHz` |
-| Default location | `kDefaultRadarLat`, `kDefaultRadarLon` (until portal overrides) |
-| ADS-B | `kAdsbFetchIntervalMs`, `kAdsbShowGroundAircraft` |
-
-Range presets: `include/ui/radar_range.h` (`kRangePresets`).
-
-## Project layout
-
-```
-include/
-  config.h
-  hardware/
-    lgfx_config.hpp
-    display.h
-    display_font.h
-  data/
-    large_airports.h
-  ui/
-    radar_theme.h
-    radar_range.h
-    radar_display.h
-    runway_overlay.h
-    status_screens.h
-  services/
-    wifi_setup.h
-    radar_location.h
-    adsb_client.h
-data/
-  ui_font.vlw              — embedded smooth UI font (Noto Sans Bold)
-scripts/
-  build_large_airports.py
-src/
-  main.cpp
-  data/
-    large_airports_data.cpp
-  hardware/
-  ui/
-  services/
-```
+- **Midnight** — fetches the new day's prices as soon as they publish
+- **16:20 UK time** — fetches next-day prices (Octopus publishes ~16:00)
+- **Short tap** — manual refresh at any time
 
 ## Wiring (GC9A01 ↔ ESP32-C3 Super Mini)
 
-| Display | ESP32-C3 |
-|---------|----------|
+| Display pin | ESP32-C3 GPIO |
+|-------------|--------------|
 | VCC | 3V3 |
 | GND | GND |
 | RST | GPIO **0** |
@@ -149,58 +76,53 @@ src/
 | DC | GPIO **10** |
 | SDA (MOSI) | GPIO **3** |
 | SCL (SCLK) | GPIO **4** |
-| BOOT (user) | GPIO **9** |
+| BLK | 3V3 (backlight always on) |
 
-## Build
+The BOOT button is on GPIO **9** (built into the Super Mini board).
+
+Orient the board so the USB-C port faces **down**.
+
+## Build & flash
 
 ```bash
-pio run -t upload
-pio device monitor
+python3 -m platformio run --target upload
+python3 -m platformio device monitor
 ```
 
 - PlatformIO env: **`supermini`**
 - Serial: **115200** baud
-- USB CDC on boot enabled in `platformio.ini` for the Super Mini
+- Upload protocol: `esptool` (native USB, auto-reset via 1200 bps touch)
 
-### Web-flashable release image
+## Project layout
 
-Single `.bin` for [esptool-js](https://espressif.github.io/esptool-js/) and similar tools (ESP32-C3, 4 MB, flash at **0x0**):
-
-```bash
-chmod +x scripts/merge-firmware.sh   # once
-./scripts/merge-firmware.sh
 ```
-
-Writes `release/plane-radar-merged.bin`. Skip rebuild if firmware is already built:
-
-```bash
-./scripts/merge-firmware.sh --no-build
+include/
+  config.h                    — pin assignments, API endpoints, timing constants
+  hardware/
+    lgfx_config.hpp
+    display.h
+    display_font.h
+  ui/
+    price_theme.h             — geometry and colour constants
+    price_display.h
+    status_screens.h
+  services/
+    wifi_setup.h              — WiFiManager wrapper; exposes region()
+    octopus_client.h          — Octopus Agile API client
+    time_sync.h               — NTP + slot index helpers
+data/
+  ui_font.vlw                 — embedded VLW font (status screens)
+src/
+  main.cpp
+  hardware/
+  ui/
+    price_display.cpp
+    status_screens.cpp
+  services/
+    wifi_setup.cpp
+    octopus_client.cpp
+    time_sync.cpp
 ```
-
-Or via PlatformIO only (output: `.pio/build/supermini/firmware-merged.bin`):
-
-```bash
-pio run -e supermini
-pio run -t merge -e supermini
-```
-
-Put the board in download mode (hold **BOOT**, tap **RESET**), then flash with Chrome/Edge over USB.
-
-### CI and releases (GitHub Actions)
-
-| Workflow | When | Output |
-|----------|------|--------|
-| [Build](.github/workflows/build.yml) | Push / PR to `main` | Artifact `plane-radar-supermini` (merged + split `.bin` files, ~90 days) |
-| [Release](.github/workflows/release.yml) | Git tag `v*` (e.g. `v1.0.0`) | GitHub Release asset `plane-radar-v1.0.0.bin` + `.sha256` |
-
-To ship a version users can download:
-
-```bash
-git tag v1.0.0
-git push origin v1.0.0
-```
-
-The release workflow builds firmware in CI and attaches the merged image to the release. Download from **Releases** on GitHub, then flash at **0x0** (ESP32-C3, 4 MB).
 
 ## Dependencies
 
