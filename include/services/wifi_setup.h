@@ -1,7 +1,7 @@
 #pragma once
 
 namespace services::wifi {
-  /** DNO region letter (A–P, never I); default 'C' (London). */
+  /** DNO region letter (A–P, never I); default config::kDefaultRegion. */
   char region();
 }
 

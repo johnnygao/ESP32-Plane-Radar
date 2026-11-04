@@ -4,11 +4,9 @@
 #include <WiFiClientSecure.h>
 
 #include <ArduinoJson.h>
-#include <Preferences.h>
 
 #include <cctype>
 #include <cstdio>
-#include <cstring>
 #include <time.h>
 
 #include "config.h"
@@ -18,13 +16,11 @@ namespace services::octopus {
 
 namespace {
 
-constexpr char kOctopusNs[]   = "octopus";
-constexpr char kProductKey[]  = "product";
-constexpr int  kConnectAttemptMs = 200;
+constexpr int    kConnectAttemptMs = 200;
+constexpr time_t kSlotSeconds = 30 * 60;
 
 PollFn s_poll_fn = nullptr;
 PriceSlot s_slots[kSlotCount];
-char s_product_code[33] = "";
 
 void pollNetwork() {
   if (s_poll_fn != nullptr) {
@@ -115,93 +111,39 @@ bool httpGet(const String& url, String& payload) {
   return ok;
 }
 
-// Compute how many minutes UK local time is ahead of UTC right now.
-int utcOffsetMinutes() {
-  const time_t now = time(nullptr);
-  struct tm local_t, utc_t;
-  localtime_r(&now, &local_t);
-  gmtime_r(&now, &utc_t);
-  int diff = (local_t.tm_hour * 60 + local_t.tm_min) -
-             (utc_t.tm_hour  * 60 + utc_t.tm_min);
-  if (diff >  720) diff -= 1440;
-  if (diff < -720) diff += 1440;
-  return diff;
+// Days since 1970-01-01 for a proleptic Gregorian date (newlib has no timegm).
+long daysFromCivil(int y, int m, int d) {
+  y -= m <= 2;
+  const long era = (y >= 0 ? y : y - 399) / 400;
+  const long yoe = y - era * 400;
+  const long doy = (153 * (m + (m > 2 ? -3 : 9)) + 2) / 5 + d - 1;
+  const long doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+  return era * 146097 + doe - 719468;
 }
 
-int parseUtcToSlotIndex(const char* valid_from, int offset_min) {
+// Parses "YYYY-MM-DDTHH:MM:SSZ" (UTC); returns false for null/malformed.
+bool parseUtc(const char* iso, time_t* out) {
   int y = 0, mo = 0, d = 0, h = 0, mi = 0, s = 0;
-  if (sscanf(valid_from, "%d-%d-%dT%d:%d:%d", &y, &mo, &d, &h, &mi, &s) < 5) {
-    return -1;
+  if (iso == nullptr ||
+      sscanf(iso, "%d-%d-%dT%d:%d:%d", &y, &mo, &d, &h, &mi, &s) < 5) {
+    return false;
   }
-  int local_min = h * 60 + mi + offset_min;
-  if (local_min < 0)    local_min += 1440;
-  if (local_min >= 1440) local_min -= 1440;
-  return local_min / 30;
+  *out = static_cast<time_t>(daysFromCivil(y, mo, d)) * 86400 +
+         h * 3600 + mi * 60 + s;
+  return true;
+}
+
+int localSlotIndex(time_t t) {
+  struct tm local_t;
+  localtime_r(&t, &local_t);
+  return (local_t.tm_hour * 60 + local_t.tm_min) / 30;
 }
 
 }  // namespace
 
 void setPollFn(PollFn fn) { s_poll_fn = fn; }
 
-bool discoverProductCode() {
-  String url = config::kOctopusApiBase;
-  url += "/products/?is_variable=true&brand=OCTOPUS_ENERGY&page_size=100";
-
-  String payload;
-  if (httpGet(url, payload)) {
-    JsonDocument doc;
-    if (!deserializeJson(doc, payload)) {
-      JsonArray results = doc["results"].as<JsonArray>();
-      for (JsonObject p : results) {
-        const char* name   = p["display_name"] | "";
-        const char* dir    = p["direction"]    | "";
-        const bool prepay  = p["is_prepay"]    | true;
-        if (strcmp(name, "Agile Octopus") == 0 &&
-            strcmp(dir, "IMPORT") == 0 &&
-            !prepay) {
-          const char* code = p["code"] | "";
-          if (code[0] != '\0') {
-            strncpy(s_product_code, code, sizeof(s_product_code) - 1);
-            s_product_code[sizeof(s_product_code) - 1] = '\0';
-            Preferences prefs;
-            if (prefs.begin(kOctopusNs, false)) {
-              prefs.putString(kProductKey, s_product_code);
-              prefs.end();
-            }
-            Serial.printf("octopus: product %s\n", s_product_code);
-            return true;
-          }
-        }
-      }
-    }
-  }
-
-  // API failed — try NVS cache
-  Preferences prefs;
-  if (prefs.begin(kOctopusNs, true)) {
-    String cached = prefs.getString(kProductKey, "");
-    prefs.end();
-    if (cached.length() > 0) {
-      strncpy(s_product_code, cached.c_str(), sizeof(s_product_code) - 1);
-      s_product_code[sizeof(s_product_code) - 1] = '\0';
-      Serial.printf("octopus: using cached product %s\n", s_product_code);
-      return true;
-    }
-  }
-
-  // Hardcoded fallback
-  strncpy(s_product_code, config::kOctopusFallbackProduct, sizeof(s_product_code) - 1);
-  s_product_code[sizeof(s_product_code) - 1] = '\0';
-  Serial.printf("octopus: using fallback product %s\n", s_product_code);
-  return false;
-}
-
-const char* productCode() {
-  if (s_product_code[0] != '\0') {
-    return s_product_code;
-  }
-  return config::kOctopusFallbackProduct;
-}
+const char* productCode() { return config::kOctopusProduct; }
 
 bool fetchTodayPrices(char region) {
   char from_buf[32], to_buf[32];
@@ -221,7 +163,7 @@ bool fetchTodayPrices(char region) {
   url += from_buf;
   url += "&period_to=";
   url += to_buf;
-  url += "&page_size=48";
+  url += "&page_size=100";
 
   String payload;
   if (!httpGet(url, payload)) {
@@ -241,17 +183,27 @@ bool fetchTodayPrices(char region) {
     s_slots[i].value_inc_vat = 0.0f;
   }
 
-  const int offset_min = utcOffsetMinutes();
+  time_t day_start = 0, day_end = 0;
+  todayBoundsUtc(&day_start, &day_end);
+
+  // Cosy rates span several hours; expand each into its 30-min slots.
+  // A null valid_from/valid_to means open-ended.
   JsonArray results = doc["results"].as<JsonArray>();
   int count = 0;
-  for (JsonObject slot : results) {
-    const float price        = slot["value_inc_vat"] | 0.0f;
-    const char* valid_from   = slot["valid_from"] | "";
-    const int   slot_idx     = parseUtcToSlotIndex(valid_from, offset_min);
-    if (slot_idx >= 0 && slot_idx < kSlotCount) {
+  for (JsonObject rate : results) {
+    const float price = rate["value_inc_vat"] | 0.0f;
+    time_t from = day_start, to = day_end;
+    parseUtc(rate["valid_from"].as<const char*>(), &from);
+    parseUtc(rate["valid_to"].as<const char*>(), &to);
+    if (from < day_start) from = day_start;
+    if (to > day_end) to = day_end;
+    for (time_t t = from; t < to; t += kSlotSeconds) {
+      const int slot_idx = localSlotIndex(t);
+      if (!s_slots[slot_idx].available) {
+        ++count;
+      }
       s_slots[slot_idx].value_inc_vat = price;
       s_slots[slot_idx].available = true;
-      ++count;
     }
   }
 

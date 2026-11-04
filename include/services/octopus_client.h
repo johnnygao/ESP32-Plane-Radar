@@ -14,7 +14,6 @@ constexpr int kSlotCount = 48;
 using PollFn = void (*)();
 void setPollFn(PollFn fn);
 
-bool discoverProductCode();
 const char* productCode();
 
 bool fetchTodayPrices(char region);

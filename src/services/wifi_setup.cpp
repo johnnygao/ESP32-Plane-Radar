@@ -24,7 +24,7 @@ volatile unsigned long s_boot_down_ms = 0;
 bool s_long_press_handled = false;
 bool s_boot_interrupt_attached = false;
 
-static char s_region = 'C';  // DNO region letter; loaded from NVS in ensureWifiManager()
+static char s_region = config::kDefaultRegion;  // DNO region letter; loaded from NVS in ensureWifiManager()
 
 void IRAM_ATTR onBootButtonIsr() {
   const bool down = digitalRead(config::kBootPin) == LOW;
@@ -77,14 +77,14 @@ WiFiManagerParameter s_param_region(
     "octopus_region",
     "DNO Region: A=East B=EMidlands C=London D=Merseyside E=WMidlands "
     "F=NE G=NW H=South J=SE K=SWales L=SW M=Yorks N=SScotland P=NScotland",
-    "C", kRegionParamLen, kRegionInputAttrs);
+    "H", kRegionParamLen, kRegionInputAttrs);
 
 void loadRegion() {
   Preferences prefs;
   if (!prefs.begin(kOctopusPrefsNamespace, true)) {
     return;
   }
-  const char c = prefs.getChar(kPrefsRegionKey, 'C');
+  const char c = prefs.getChar(kPrefsRegionKey, config::kDefaultRegion);
   prefs.end();
   if (c >= 'A' && c <= 'P' && c != 'I') {
     s_region = c;
@@ -193,7 +193,7 @@ void eraseWifiCredentials() {
 void resetWifiCredentials() {
   markForceConfigPortal();
   eraseWifiCredentials();
-  // Clear Octopus NVS (product cache, region)
+  // Clear Octopus NVS (region)
   {
     Preferences prefs;
     if (prefs.begin(kOctopusPrefsNamespace, false)) {
@@ -201,7 +201,7 @@ void resetWifiCredentials() {
       prefs.end();
     }
   }
-  s_region = 'C';
+  s_region = config::kDefaultRegion;
   Serial.println("WiFi credentials and Octopus settings cleared");
 }
 

@@ -1,6 +1,6 @@
-# Octopus Agile Price Display
+# Octopus Cosy Price Display
 
-Firmware for an **ESP32-C3 Super Mini** and a **1.28″ round GC9A01** display (240×240). Shows today's **Octopus Agile** half-hourly electricity prices on a circular bar chart, colour-coded by relative cost.
+Firmware for an **ESP32-C3 Super Mini** and a **1.28″ round GC9A01** display (240×240). Shows today's **Cosy Octopus** (`COSY-22-12-08`) electricity unit rates as 48 half-hourly bars on a circular chart, colour-coded by rate tier.
 
 ## What it shows
 
@@ -11,22 +11,22 @@ Firmware for an **ESP32-C3 Super Mini** and a **1.28″ round GC9A01** display (
 
 ### Colour coding
 
-Thresholds are calculated fresh each day from the actual price distribution (20th / 80th percentile):
+Each bar is coloured by where its rate sits among the day's rates:
 
-| Colour | Meaning |
-|--------|---------|
-| Green | Below 20th percentile — cheap |
-| Grey | 20th–80th percentile — typical |
-| Red | Above 80th percentile — expensive |
-| Teal | Negative price |
-| Dark grey stub | Slot not yet published |
+|     Colour     |                   Meaning                    |
+|----------------|----------------------------------------------|
+| Green          | Day's lowest rate — Cosy (cheap) window      |
+| Grey           | Any rate in between — standard               |
+| Red            | Day's highest rate — peak (16:00–19:00)      |
+| Teal           | Negative price                               |
+| Dark grey stub | No rate for this slot (e.g. API unreachable) |
 
 ## First-time setup
 
 1. Power on — the display shows a yellow setup screen
-2. Join the Wi-Fi network **`OctopusAgile-Setup`** from your phone or laptop
-3. Open **`http://octopus-agile.local`** or **`http://192.168.4.1`**
-4. Enter your home Wi-Fi credentials and your **DNO region** letter (see table below)
+2. Join the Wi-Fi network **`OctopusCosy-Setup`** from your phone or laptop
+3. Open **`http://octopus-cosy.local`** or **`http://192.168.4.1`**
+4. Enter your home Wi-Fi credentials and your **DNO region** letter (see table below; defaults to `H`)
 5. Save — the device connects, syncs time, fetches today's prices, and draws the display
 
 ### DNO regions
@@ -50,7 +50,7 @@ Thresholds are calculated fresh each day from the actual price distribution (20t
 
 ### Reconfiguring
 
-Visit **`http://octopus-agile.local`** (or the device IP shown in the serial log) while it's connected to Wi-Fi.
+Visit **`http://octopus-cosy.local`** (or the device IP shown in the serial log) while it's connected to Wi-Fi.
 
 ## Controls (BOOT button, GPIO 9)
 
@@ -61,9 +61,10 @@ Visit **`http://octopus-agile.local`** (or the device IP shown in the serial log
 
 ## Price refresh schedule
 
-- **Midnight** — fetches the new day's prices as soon as they publish
-- **16:20 UK time** — fetches next-day prices (Octopus publishes ~16:00)
+- **Midnight UK time** — fetches the new day's rates
 - **Short tap** — manual refresh at any time
+
+The product code lives in `include/config.h` (`kOctopusProduct`).
 
 ## Wiring (GC9A01 ↔ ESP32-C3 Super Mini)
 
@@ -108,7 +109,7 @@ include/
     status_screens.h
   services/
     wifi_setup.h              — WiFiManager wrapper; exposes region()
-    octopus_client.h          — Octopus Agile API client
+    octopus_client.h          — Octopus Cosy API client
     time_sync.h               — NTP + slot index helpers
 data/
   ui_font.vlw                 — embedded VLW font (status screens)

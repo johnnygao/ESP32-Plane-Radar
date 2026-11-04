@@ -7,11 +7,11 @@
 namespace config {
 
 // --- Wi-Fi portal ---
-constexpr char kPortalApName[]   = "OctopusAgile-Setup";
+constexpr char kPortalApName[]   = "OctopusCosy-Setup";
 constexpr char kPortalIp[]       = "192.168.4.1";
-/** mDNS host (no ".local" suffix); browser: http://octopus-agile.local */
-constexpr char kPortalHostname[] = "octopus-agile";
-constexpr char kPortalHostUrl[]  = "octopus-agile.local";
+/** mDNS host (no ".local" suffix); browser: http://octopus-cosy.local */
+constexpr char kPortalHostname[] = "octopus-cosy";
+constexpr char kPortalHostUrl[]  = "octopus-cosy.local";
 
 /** Per-attempt STA connect wait (ms); retried kWifiConnectAttempts times. */
 constexpr unsigned long kWifiConnectAttemptMs = 15000;
@@ -44,9 +44,11 @@ constexpr uint32_t kDisplaySpiWriteHz = 40000000;
 constexpr bool kDisplayInvert = true;
 constexpr bool kDisplayRgbOrder = true;
 
-// --- Octopus Agile ---
-constexpr char kOctopusApiBase[]         = "https://api.octopus.energy/v1";
-constexpr char kOctopusFallbackProduct[] = "AGILE-FLEX-22-11-25";
+// --- Octopus Cosy ---
+constexpr char kOctopusApiBase[] = "https://api.octopus.energy/v1";
+constexpr char kOctopusProduct[] = "COSY-22-12-08";
+/** DNO region used until one is saved in the portal (H = Southern). */
+constexpr char kDefaultRegion = 'H';
 constexpr char kNtpServer1[]             = "pool.ntp.org";
 constexpr char kNtpServer2[]             = "time.nist.gov";
 constexpr unsigned long kPriceFetchTimeoutMs = 15000;

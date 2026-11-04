@@ -2,7 +2,6 @@
 
 #include <lgfx/v1/lgfx_fonts.hpp>
 
-#include <algorithm>
 #include <cfloat>
 #include <cmath>
 #include <cstdio>
@@ -58,47 +57,30 @@ bool ensureFrameSprite() {
   return true;
 }
 
-uint16_t slotColor(float price, float p20, float p80, bool available) {
+// Cosy has a few fixed tiers: cheapest = green, dearest = red, rest = grey.
+uint16_t slotColor(float price, float day_min, float day_max, bool available) {
+  constexpr float kEps = 0.01f;
   if (!available) {
     return s_col_na;
   }
   if (price < 0.0f) {
     return s_col_neg;
   }
-  if (price <= p20) {
+  if (day_max - day_min < kEps) {
+    return s_col_mid;
+  }
+  if (price <= day_min + kEps) {
     return s_col_low;
   }
-  if (price > p80) {
+  if (price >= day_max - kEps) {
     return s_col_high;
   }
   return s_col_mid;
 }
 
-void computePercentiles(const services::octopus::PriceSlot* slots,
-                        float* out_p20, float* out_p80) {
-  float prices[services::octopus::kSlotCount];
-  int n = 0;
-  for (int i = 0; i < services::octopus::kSlotCount; ++i) {
-    if (slots[i].available) {
-      prices[n++] = slots[i].value_inc_vat;
-    }
-  }
-  if (n == 0) {
-    *out_p20 = 0.0f;
-    *out_p80 = 100.0f;
-    return;
-  }
-  std::sort(prices, prices + n);
-  *out_p20 = prices[(n * 20) / 100];
-  *out_p80 = prices[(n * 80) / 100];
-}
-
 void drawBars() {
   const services::octopus::PriceSlot* slots = services::octopus::priceSlots();
   const int current_slot = currentSlotIndex();
-
-  float p20 = 0.0f, p80 = 0.0f;
-  computePercentiles(slots, &p20, &p80);
 
   // Day range for bar height scaling
   float actual_min = FLT_MAX, actual_max = -FLT_MAX;
@@ -139,7 +121,7 @@ void drawBars() {
     const float x1 = cx + r1 * cos_a;
     const float y1 = cy + r1 * sin_a;
 
-    const uint16_t bar_color = slotColor(price, p20, p80, avail);
+    const uint16_t bar_color = slotColor(price, actual_min, actual_max, avail);
 
     // Current slot: white outline (wider line) then colored bar on top
     if (i == current_slot) {

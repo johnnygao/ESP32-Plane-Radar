@@ -1,5 +1,5 @@
 /**
- * Octopus Agile price display — WiFi setup, NTP sync, then price UI on the
+ * Octopus Cosy price display — WiFi setup, NTP sync, then price UI on the
  * round GC9A01 display.
  */
 
@@ -33,7 +33,7 @@ void setup() {
   Serial.begin(115200);
   delay(500);
   Serial.println();
-  Serial.println("Octopus Agile Display");
+  Serial.println("Octopus Cosy Display");
 
   displayInit();
   bootButtonInit();
@@ -65,7 +65,6 @@ void setup() {
   }
 
   services::octopus::setPollFn(wifiLoop);
-  services::octopus::discoverProductCode();
   services::octopus::fetchTodayPrices(services::wifi::region());
   priceDisplayDraw();
   g_display_ready = true;
@@ -108,12 +107,11 @@ void loop() {
       g_display_ready = true;
     } else {
       const int mod = minuteOfDay();
-      if (mod == 0 || mod == 980) {  // midnight or 16:20 UK
-        if (mod != g_last_fetch_minute) {
-          g_last_fetch_minute = mod;
-          fetchAndRedraw();
-        }
+      // Cosy rates are fixed per day; refetch at UK midnight only
+      if (mod == 0 && g_last_fetch_minute != 0) {
+        fetchAndRedraw();
       }
+      g_last_fetch_minute = mod;
       priceDisplayUpdate();
     }
   }

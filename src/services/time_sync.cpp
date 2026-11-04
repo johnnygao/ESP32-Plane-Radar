@@ -39,24 +39,30 @@ int minuteOfDay() {
   return t.tm_hour * 60 + t.tm_min;
 }
 
-void buildPeriodStrings(char* from_buf, char* to_buf, size_t len) {
+void todayBoundsUtc(time_t* start, time_t* end) {
   time_t now = time(nullptr);
   struct tm local_t;
   localtime_r(&now, &local_t);
 
-  // Truncate to midnight of the current UK calendar day
   local_t.tm_hour  = 0;
   local_t.tm_min   = 0;
   local_t.tm_sec   = 0;
   local_t.tm_isdst = -1;
-  const time_t midnight = mktime(&local_t);
+  *start = mktime(&local_t);
 
-  struct tm utc_from;
-  gmtime_r(&midnight, &utc_from);
-  strftime(from_buf, len, "%Y-%m-%dT%H:%M:%SZ", &utc_from);
+  // Next local midnight; days are 23 or 25 h on DST changes
+  local_t.tm_mday += 1;
+  local_t.tm_isdst = -1;
+  *end = mktime(&local_t);
+}
 
-  const time_t tomorrow = midnight + 86400;
-  struct tm utc_to;
-  gmtime_r(&tomorrow, &utc_to);
-  strftime(to_buf, len, "%Y-%m-%dT%H:%M:%SZ", &utc_to);
+void buildPeriodStrings(char* from_buf, char* to_buf, size_t len) {
+  time_t start = 0, end = 0;
+  todayBoundsUtc(&start, &end);
+
+  struct tm utc_t;
+  gmtime_r(&start, &utc_t);
+  strftime(from_buf, len, "%Y-%m-%dT%H:%M:%SZ", &utc_t);
+  gmtime_r(&end, &utc_t);
+  strftime(to_buf, len, "%Y-%m-%dT%H:%M:%SZ", &utc_t);
 }
